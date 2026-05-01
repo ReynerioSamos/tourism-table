@@ -100,11 +100,11 @@ const PAGE_SIZE = 20;
  * @returns {object} public API
  */
 export function createDataService(eventBus, dataUrl) {
-  if (!eventBus || typeof eventBus.emit !== 'function') {
-    throw new TypeError('createDataService requires an event bus.');
+  if (!eventBus || typeof eventBus.emit !== "function") {
+    throw new TypeError("createDataService requires an event bus.");
   }
-  if (typeof dataUrl !== 'string') {
-    throw new TypeError('createDataService requires a dataUrl string.');
+  if (typeof dataUrl !== "string") {
+    throw new TypeError("createDataService requires a dataUrl string.");
   }
 
   // -------------------------------------------------------------------------
@@ -114,17 +114,17 @@ export function createDataService(eventBus, dataUrl) {
 
   function createInitialState() {
     return {
-      status: 'idle',
+      status: "idle",
       allRows: [],
       view: {
-        searchTerm: '',
+        searchTerm: "",
         filters: {
-          district: '',
-          purpose: '',
-          year: '',
+          district: "",
+          purpose: "",
+          year: "",
         },
         sortColumn: null,
-        sortDirection: 'asc',
+        sortDirection: "asc",
         page: 1,
         pageSize: PAGE_SIZE,
       },
@@ -148,6 +148,13 @@ export function createDataService(eventBus, dataUrl) {
     //   - Otherwise return rows.filter(...) where the row's `country`
     //     (lowercased) includes the searchTerm (lowercased and trimmed).
 
+    // if search term is empty, return rows as-is
+    const trimmedSearchTerm = searchTerm.trim().toLowerCase();
+    if (trimmedSearchTerm === "") return rows;
+    // otherwise, filter rows by country (case-insensitive)
+    return rows.filter((row) =>
+      row.country.toLowerCase().includes(trimmedSearchTerm),
+    );
   }
 
   /**
@@ -166,6 +173,17 @@ export function createDataService(eventBus, dataUrl) {
     //   - Check filters.year:     if non-empty, String(row.year) must equal it.
     //                             (Because the select emits strings.)
 
+    // filters
+    const { district, purpose, year } = filters;
+    // filter rows based on district, purpose, and year (if filter is non-empty)
+    return rows.filter((row) => {
+      return (
+        (district === "" || row.district === district) &&
+        (purpose === "" || row.purpose === purpose) &&
+        // String() because the select emits strings
+        (year === "" || String(row.year) === year)
+      );
+    });
   }
 
   /**
@@ -181,8 +199,18 @@ export function createDataService(eventBus, dataUrl) {
    * NOT alphabetical. A MONTH_ORDER constant is provided below.
    */
   const MONTH_ORDER = {
-    January: 1, February: 2, March: 3, April: 4, May: 5, June: 6,
-    July: 7, August: 8, September: 9, October: 10, November: 11, December: 12,
+    January: 1,
+    February: 2,
+    March: 3,
+    April: 4,
+    May: 5,
+    June: 6,
+    July: 7,
+    August: 8,
+    September: 9,
+    October: 10,
+    November: 11,
+    December: 12,
   };
 
   function applySort(rows, sortColumn, sortDirection) {
@@ -196,6 +224,32 @@ export function createDataService(eventBus, dataUrl) {
     //   - If sortDirection is 'desc', reverse the result.
     //   - Return the sorted clone.
 
+    // if sortColumn is null, return rows as-is
+    if (sortColumn === null) return rows;
+    // otherwise, clone rows first (never mutate input)
+    const sortedRows = rows.slice();
+    // sort the clone
+    sortedRows.sort((a, b) => {
+      // if sortColumn is 'month', use MONTH_ORDER to compare values
+      if (sortColumn === "month") {
+        return MONTH_ORDER[a.month] - MONTH_ORDER[b.month];
+      }
+      // get the values to compare
+      const valueA = a[sortColumn];
+      const valueB = b[sortColumn];
+      // if both values are numbers, subtract them
+      if (typeof valueA === "number" && typeof valueB === "number") {
+        return valueA - valueB;
+      }
+      // otherwise, use localeCompare to sort strings
+      return String(valueA).localeCompare(String(valueB));
+    });
+    // if sortDirection is 'desc', reverse the result
+    if (sortDirection === "desc") {
+      sortedRows.reverse();
+    }
+    // return the sorted clone
+    return sortedRows;
   }
 
   /**
@@ -206,7 +260,8 @@ export function createDataService(eventBus, dataUrl) {
     // TODO (4):
     //   - startIndex = (page - 1) * pageSize
     //   - return rows.slice(startIndex, startIndex + pageSize)
-
+    const startIndex = (page - 1) * pageSize;
+    return rows.slice(startIndex, startIndex + pageSize);
   }
 
   /**
@@ -216,7 +271,7 @@ export function createDataService(eventBus, dataUrl) {
   function computePageCount(rowCount, pageSize) {
     // TODO (5):
     //   - Math.max(1, Math.ceil(rowCount / pageSize))
-
+    return Math.max(1, Math.ceil(rowCount / pageSize));
   }
 
   /**
@@ -226,7 +281,7 @@ export function createDataService(eventBus, dataUrl) {
   function clampPage(page, pageCount) {
     // TODO (6):
     //   - Math.min(pageCount, Math.max(1, page))
-
+    return Math.min(pageCount, Math.max(1, page));
   }
 
   // -------------------------------------------------------------------------
@@ -254,6 +309,39 @@ export function createDataService(eventBus, dataUrl) {
     //   - paginated  = applyPagination(sorted, state.view.page, state.view.pageSize)
     //   - Emit 'view:changed' with the full payload shape documented at the top.
 
+    // If state.status !== 'ready', return (nothing to compute yet).
+    if (state.status !== "ready") return;
+    // Apply search, filters, sort, and pagination to compute the view state.
+    const searched = applySearch(state.allRows, state.view.searchTerm);
+    const filtered = applyFilters(searched, state.view.filters);
+    const totalFiltered = filtered.length;
+    const pageCount = computePageCount(totalFiltered, state.view.pageSize);
+    // Clamp page to the computed page count, and apply sort and pagination.
+    state.view.page = clampPage(state.view.page, pageCount);
+    const sorted = applySort(
+      filtered,
+      state.view.sortColumn,
+      state.view.sortDirection,
+    );
+    const paginated = applyPagination(
+      sorted,
+      state.view.page,
+      state.view.pageSize,
+    );
+    // Emit 'view:changed' with the computed view state.
+    eventBus.emit("view:changed", {
+      status: "ready",
+      allRows: state.allRows,
+      view: {
+        searchTerm: state.view.searchTerm,
+        filters: state.view.filters,
+        sortColumn: state.view.sortColumn,
+        sortDirection: state.view.sortDirection,
+        page: state.view.page,
+        pageSize: state.view.pageSize,
+      },
+      selectedRowId: state.selectedRowId,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -278,6 +366,34 @@ export function createDataService(eventBus, dataUrl) {
     //       * state.status = 'error'
     //       * emit 'data:loadFailed' with { message: err.message }
 
+    // Set state.status to 'loading', emit 'data:loading', and fetch the data.
+    // On success
+    try {
+      // Set state.status to 'loading'
+      state.status = "loading";
+      // Emit 'data:loading' with null
+      eventBus.emit("data:loading", null);
+      // Fetch the data from the server
+      const response = await fetch(dataUrl);
+      // If the response is not ok, throw an error
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // Parse the response as JSON
+      const data = await response.json();
+      // Set state.allRows to the parsed array
+      state.allRows = data;
+      // Set state.status to 'ready'
+      state.status = "ready";
+      // Emit 'data:loaded' with { totalAll: data.length }
+      eventBus.emit("data:loaded", { totalAll: data.length });
+      // Call recomputeAndEmit() to update the table
+      recomputeAndEmit();
+      // On Failure
+    } catch (err) {
+      // Set state.status to 'error'
+      state.status = "error";
+      // Emit 'data:loadFailed' with { message: err.message }
+      eventBus.emit("data:loadFailed", { message: err.message });
+    }
   }
 
   /**
@@ -290,6 +406,12 @@ export function createDataService(eventBus, dataUrl) {
     //   - state.view.page = 1
     //   - recomputeAndEmit()
 
+    // Set state.view.searchTerm to the stringified term
+    state.view.searchTerm = String(term);
+    // Set state.view.page to 1
+    state.view.page = 1;
+    // Call recomputeAndEmit() to update the table
+    recomputeAndEmit();
   }
 
   /**
@@ -305,6 +427,17 @@ export function createDataService(eventBus, dataUrl) {
     //   - state.view.page = 1
     //   - recomputeAndEmit()
 
+    // Guard: if key is not one of the three allowed keys, return.
+    // Fail loud is fine — throw a TypeError.
+    if (key !== "district" && key !== "purpose" && key !== "year") {
+      throw new TypeError(`Invalid filter key: ${key}`);
+    }
+    // Set state.view.filters[key] to the stringified value
+    state.view.filters[key] = String(value);
+    // Set state.view.page to 1
+    state.view.page = 1;
+    // Call recomputeAndEmit() to update the table
+    recomputeAndEmit();
   }
 
   /**
@@ -323,6 +456,17 @@ export function createDataService(eventBus, dataUrl) {
     //       * state.view.sortDirection = 'asc'
     //   - recomputeAndEmit()
 
+    // If state.view.sortColumn is already the same as column, flip direction
+    if (state.view.sortColumn === column) {
+      state.view.sortDirection =
+        state.view.sortDirection === "asc" ? "desc" : "asc";
+    } else {
+      // Otherwise, set sortColumn to column and sortDirection to 'asc'
+      state.view.sortColumn = column;
+      state.view.sortDirection = "asc";
+    }
+    // Call recomputeAndEmit() to update the table
+    recomputeAndEmit();
   }
 
   /**
@@ -333,6 +477,10 @@ export function createDataService(eventBus, dataUrl) {
     //   - state.view.page = Number(page) || 1
     //   - recomputeAndEmit()
 
+    // Set state.view.page to the numberified page, or 1 if invalid
+    state.view.page = Number(page) || 1;
+    // Call recomputeAndEmit() to update the table, clamping page to valid range
+    recomputeAndEmit();
   }
 
   /**
@@ -344,6 +492,10 @@ export function createDataService(eventBus, dataUrl) {
     //     createInitialState, but do NOT reset allRows or status).
     //   - recomputeAndEmit()
 
+    // Reset state.view to a fresh default object
+    state.view = createInitialState().view;
+    // Call recomputeAndEmit() to update the table
+    recomputeAndEmit();
   }
 
   // ==========================================================================
@@ -368,7 +520,6 @@ export function createDataService(eventBus, dataUrl) {
     //   - If not found, return silently.
     //   - state.selectedRowId = id
     //   - Emit 'row:selected' with { row }.
-
   }
 
   /**
@@ -380,7 +531,6 @@ export function createDataService(eventBus, dataUrl) {
     //   - If state.selectedRowId is null, return (nothing to do).
     //   - state.selectedRowId = null
     //   - Emit 'row:deselected' with null payload.
-
   }
 
   return Object.freeze({
@@ -391,7 +541,7 @@ export function createDataService(eventBus, dataUrl) {
     setPage,
     resetView,
     // --- EXTRA CREDIT (remove these two if not implementing bonus) ---
-    selectRow,
-    clearSelection,
+    //selectRow,
+    //clearSelection,
   });
 }
