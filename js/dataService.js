@@ -329,18 +329,16 @@ export function createDataService(eventBus, dataUrl) {
       state.view.pageSize,
     );
     // Emit 'view:changed' with the computed view state.
+    // fixed to match actualy payload (autofill got me in trouble this time)
     eventBus.emit("view:changed", {
-      status: "ready",
-      allRows: state.allRows,
-      view: {
-        searchTerm: state.view.searchTerm,
-        filters: state.view.filters,
-        sortColumn: state.view.sortColumn,
-        sortDirection: state.view.sortDirection,
-        page: state.view.page,
-        pageSize: state.view.pageSize,
-      },
-      selectedRowId: state.selectedRowId,
+      visibleRows: paginated,
+      totalAll: state.allRows.length,
+      totalFiltered: totalFiltered,
+      page: state.view.page,
+      pageCount: pageCount,
+      pageSize: state.view.pageSize,
+      sortColumn: state.view.sortColumn,
+      sortDirection: state.view.sortDirection,
     });
   }
 

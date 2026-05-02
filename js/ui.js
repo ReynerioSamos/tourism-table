@@ -322,8 +322,6 @@ export function createUI(eventBus, dataService, rootEl) {
     //   simple here keeps the pattern the focus.
 
     dataService.setSearch(domEvent.target.value);
-    // re-render the table
-    renderTable();
   }
 
   function onFilterChange(domEvent) {
@@ -339,8 +337,6 @@ export function createUI(eventBus, dataService, rootEl) {
     const key = role.replace("filter-", "");
     // call dataService.setFilter(key, domEvent.target.value)
     dataService.setFilter(key, domEvent.target.value);
-    // re-render the table
-    renderTable();
   }
 
   function onSortHeaderClick(domEvent) {
@@ -355,8 +351,6 @@ export function createUI(eventBus, dataService, rootEl) {
     const column = th.dataset.sortColumn;
     // call dataService.setSort(column)
     dataService.setSort(column);
-    // re-render the table
-    renderTable();
   }
 
   function onResetClick() {
@@ -375,8 +369,6 @@ export function createUI(eventBus, dataService, rootEl) {
     els.filterYear.value = "";
     // call dataService.resetView()
     dataService.resetView();
-    // re-render the table
-    renderTable();
   }
 
   // Pagination handlers — each calls setPage with the right number.
