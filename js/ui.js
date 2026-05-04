@@ -30,553 +30,616 @@
 // ============================================================================
 
 export function createUI(eventBus, dataService, rootEl) {
-  // -------------------------------------------------------------------------
-  // DOM element cache — resolved on mount.
-  // -------------------------------------------------------------------------
-  const els = {
-    tbody: null,
-    search: null,
-    filterDistrict: null,
-    filterPurpose: null,
-    filterYear: null,
-    resetBtn: null,
-    status: null,
-    statusText: null,
-    pageFirst: null,
-    pagePrev: null,
-    pageNext: null,
-    pageLast: null,
-    pageInfo: null,
-    sortHeaders: null, // NodeList
+    // -------------------------------------------------------------------------
+    // DOM element cache — resolved on mount.
+    // -------------------------------------------------------------------------
+    const els = {
+        tbody: null,
+        search: null,
+        filterDistrict: null,
+        filterPurpose: null,
+        filterYear: null,
+        resetBtn: null,
+        status: null,
+        statusText: null,
+        pageFirst: null,
+        pagePrev: null,
+        pageNext: null,
+        pageLast: null,
+        pageInfo: null,
+        sortHeaders: null, // NodeList
 
-    // --- EXTRA CREDIT: row detail modal ---
-    detail: null, // the backdrop + panel container
-    detailClose: null,
-    detailYear: null,
-    detailMonth: null,
-    detailCountry: null,
-    detailDistrict: null,
-    detailPurpose: null,
-    detailArrivals: null,
-    detailStay: null,
-    detailId: null,
-  };
+        // --- EXTRA CREDIT: row detail modal ---
+        detail: null, // the backdrop + panel container
+        detailClose: null,
+        detailYear: null,
+        detailMonth: null,
+        detailCountry: null,
+        detailDistrict: null,
+        detailPurpose: null,
+        detailArrivals: null,
+        detailStay: null,
+        detailId: null,
+    };
 
-  const subscriptions = [];
+    const subscriptions = [];
 
-  // -------------------------------------------------------------------------
-  // Formatting helpers (pure, safe to keep here — not business logic).
-  // -------------------------------------------------------------------------
-  function formatNumber(n) {
-    // 12345 → "12,345"
-    return Number(n).toLocaleString("en-US");
-  }
+    // -------------------------------------------------------------------------
+    // Formatting helpers (pure, safe to keep here — not business logic).
+    // -------------------------------------------------------------------------
+    function formatNumber(n) {
+        // 12345 → "12,345"
+        return Number(n).toLocaleString("en-US");
+    }
 
-  // -------------------------------------------------------------------------
-  // RENDERERS
-  // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // RENDERERS
+    // -------------------------------------------------------------------------
 
-  /**
-   * Build a single table row for a data row. Returns a <tr> element.
-   *
-   * Expected structure:
-   *   <tr>
-   *     <td>2024</td>
-   *     <td>March</td>
-   *     <td>United States</td>
-   *     <td>Cayo</td>
-   *     <td><span class="purpose-badge">Leisure</span></td>
-   *     <td class="num">4,523</td>
-   *     <td class="num">6.2</td>
-   *   </tr>
-   *
-   * Security note: use textContent, never innerHTML.
-   */
-  function buildRowElement(row) {
-    // TODO (1):
-    //   - Create a <tr>.
-    //   - Create 7 <td> cells in this order:
-    //       year, month, country, district, purpose (wrapped in
-    //       a <span class="purpose-badge">), arrivals, avgStayNights.
-    //   - The last two cells must have class "num" (right-aligned monospace).
-    //   - Use formatNumber() on arrivals for thousands separators.
-    //   - avgStayNights can be displayed as-is (already a decimal).
-    //   - Return the <tr>.
+    /**
+     * Build a single table row for a data row. Returns a <tr> element.
+     *
+     * Expected structure:
+     *   <tr>
+     *     <td>2024</td>
+     *     <td>March</td>
+     *     <td>United States</td>
+     *     <td>Cayo</td>
+     *     <td><span class="purpose-badge">Leisure</span></td>
+     *     <td class="num">4,523</td>
+     *     <td class="num">6.2</td>
+     *   </tr>
+     *
+     * Security note: use textContent, never innerHTML.
+     */
+    function buildRowElement(row) {
+        // TODO (1):
+        //   - Create a <tr>.
+        //   - Create 7 <td> cells in this order:
+        //       year, month, country, district, purpose (wrapped in
+        //       a <span class="purpose-badge">), arrivals, avgStayNights.
+        //   - The last two cells must have class "num" (right-aligned monospace).
+        //   - Use formatNumber() on arrivals for thousands separators.
+        //   - avgStayNights can be displayed as-is (already a decimal).
+        //   - Return the <tr>.
+        //
+        //   EXTRA CREDIT: set data-row-id="<row.id>" on the <tr> so the
+        //   row-click handler can read it via event delegation, and so
+        //   showDetail() can find the selected tr to highlight.
+
+        // create <tr> element
+        const tr = document.createElement("tr");
+        tr.dataset.rowId = row.id;
+
+        // create 7 <td> cells: year, month, country, district, purpose, arrivals, avgStayNights
+        const cells = [
+            "year",
+            "month",
+            "country",
+            "district",
+            "purpose",
+            "arrivals",
+            "avgStayNights",
+        ];
+        for (const cell of cells) {
+            const td = document.createElement("td");
+            // purpose is wrapped in a <span class="purpose-badge">
+            if (cell === "purpose") {
+                const span = document.createElement("span");
+                span.classList.add("purpose-badge");
+                span.textContent = row[cell];
+                td.appendChild(span);
+            } else {
+                td.textContent = row[cell];
+            }
+            // the last two cells must have class "num" (right-aligned monospace)
+            if (cell === "arrivals" || cell === "avgStayNights") {
+                td.classList.add("num");
+            }
+            // use formatNumber on arrivals for thousands
+            if (cell === "arrivals") {
+                td.textContent = formatNumber(td.textContent);
+            }
+            // append the cell to the row
+            tr.appendChild(td);
+        }
+        // return the <tr>
+        return tr;
+    }
+
+    /**
+     * Replace tbody contents with rows from the given array.
+     * If the array is empty, render a single "no results" row.
+     */
+    function renderTable(visibleRows) {
+        // TODO (2):
+        //   - Clear els.tbody (replaceChildren() is idiomatic).
+        //   - If visibleRows.length === 0:
+        //       * Create <tr class="empty-row"><td colspan="7">No results match
+        //         your search and filters.</td></tr> and append.
+        //       * Return early.
+        //   - Otherwise build all rows into a DocumentFragment, then append once.
+
+        // clear els.tbody
+        els.tbody.replaceChildren();
+        // if visibleRows is === 0
+        if (visibleRows.length === 0) {
+            // Create <tr class="empty-row">
+            const tr = document.createElement("tr");
+            tr.classList.add("empty-row");
+            const td = document.createElement("td");
+            // <td colSpan="7">no results</td> using textContent
+            td.colSpan = 7;
+            td.textContent = "no results";
+            // append the <td> to the <tr>, then append the <tr> to els.tbody
+            tr.appendChild(td);
+            els.tbody.appendChild(tr);
+            // return early
+            return;
+        }
+        // otherwise build all rows into a DocumentFragment, then append once
+        const fragment = document.createDocumentFragment();
+        for (const row of visibleRows) {
+            fragment.appendChild(buildRowElement(row));
+        }
+        els.tbody.appendChild(fragment);
+    }
+
+    /**
+     * Update the sort indicator arrows on the <th> elements.
+     * Remove .is-sort-asc / .is-sort-desc from ALL headers, then add
+     * the correct class to the active header.
+     */
+    function renderSortIndicators(sortColumn, sortDirection) {
+        // TODO (3):
+        //   - For every header in els.sortHeaders:
+        //       * Remove 'is-sort-asc' and 'is-sort-desc'.
+        //   - If sortColumn is null, return (nothing is sorted).
+        //   - Find the header whose data-sort-column === sortColumn.
+        //   - Add 'is-sort-asc' or 'is-sort-desc' based on sortDirection.
+
+        //for every header in els.sortHeaders
+        for (const header of els.sortHeaders) {
+            // remove 'is-sort-asc' and 'is-sort-desc'
+            header.classList.remove("is-sort-asc", "is-sort-desc");
+        }
+        // if sortColumn is null, return (nothing is sorted)
+        if (sortColumn === null) {
+            return;
+        }
+        // find the header whose data-sort-column === sortColumn
+        const activeHeader = Array.from(els.sortHeaders).find(
+            (header) => header.dataset.sortColumn === sortColumn,
+        );
+        // add 'is-sort-asc' or 'is-sort-desc' based on sortDirection
+        if (activeHeader) {
+            activeHeader.classList.add(
+                sortDirection === "asc" ? "is-sort-asc" : "is-sort-desc",
+            );
+        }
+    }
+
+    /**
+     * Update the pagination controls.
+     *   - Page info: "Page X of Y"
+     *   - First/Prev: disabled when on page 1
+     *   - Next/Last:  disabled when on last page
+     */
+    function renderPagination(page, pageCount) {
+        // TODO (4):
+        //   - els.pageInfo.textContent = `Page ${page} of ${pageCount}`
+        //   - els.pageFirst.disabled = page <= 1
+        //   - els.pagePrev.disabled  = page <= 1
+        //   - els.pageNext.disabled  = page >= pageCount
+        //   - els.pageLast.disabled  = page >= pageCount
+
+        els.pageInfo.textContent = `Page ${page} of ${pageCount}`;
+        els.pageFirst.disabled = page <= 1;
+        els.pagePrev.disabled = page <= 1;
+        els.pageNext.disabled = page >= pageCount;
+        els.pageLast.disabled = page >= pageCount;
+    }
+
+    /**
+     * Update the status bar above the table.
+     * Example: "Showing 20 of 142 rows (filtered from 276 total)"
+     */
+    function renderStatus(totalFiltered, totalAll, visibleCount) {
+        // TODO (5):
+        //   - Remove 'is-error' class from els.status (in case previous state was error).
+        //   - Build message:
+        //       * If totalFiltered === totalAll: `Showing ${visibleCount} of ${totalAll} rows`
+        //       * Else: `Showing ${visibleCount} of ${totalFiltered} rows (filtered from ${totalAll} total)`
+        //   - Use formatNumber() for each count.
+        //   - els.statusText.textContent = message
+
+        // remove 'is-error' class from els.status (in case previous state was error)
+        els.status.classList.remove("is-error");
+        // build message
+        let message;
+        if (totalFiltered === totalAll) {
+            message = `Showing ${visibleCount} of ${totalAll} rows`;
+        } else {
+            message = `Showing ${visibleCount} of ${totalFiltered} rows (filtered from ${totalAll} total)`;
+        }
+        // use formatNumber() for each count
+        message = message.replace(/\d+/g, (n) => formatNumber(n));
+        // set textContent to message
+        els.statusText.textContent = message;
+    }
+
+    function showStatus(message, opts = {}) {
+        els.statusText.textContent = message;
+        els.status.classList.toggle("is-error", Boolean(opts.error));
+    }
+
+    // ==========================================================================
+    //  EXTRA CREDIT: Row Detail Modal Renderers (+5 of the 10 bonus points)
+    // --------------------------------------------------------------------------
+    //  These render the modal open/closed and populate its fields.
+    //  Also highlight the selected row in the table body.
     //
-    //   EXTRA CREDIT: set data-row-id="<row.id>" on the <tr> so the
-    //   row-click handler can read it via event delegation, and so
-    //   showDetail() can find the selected tr to highlight.
+    //  If you skip extra credit, remove these functions AND the bonus
+    //  subscriptions below. Leaving empty stubs causes silent bugs.
+    // ==========================================================================
 
-    // create <tr> element
-    const tr = document.createElement("tr");
-    tr.dataset.rowId = row.id;
+    /**
+     * Populate the modal fields from a row and make it visible.
+     * Also add .is-selected to the corresponding table row (if visible).
+     */
+    function showDetail(row) {
+        // TODO (BONUS-UI-1):
+        //   - Set textContent on each detail-* field:
+        //       detailYear, detailMonth, detailCountry, detailDistrict,
+        //       detailPurpose, detailId
+        //   - detailArrivals:   use formatNumber(row.arrivals)
+        //   - detailStay:       `${row.avgStayNights} nights`
+        //   - Add 'is-visible' class to els.detail.
+        //   - Set aria-hidden="false" on els.detail.
+        //   - Find the <tr> in the tbody with matching data-row-id (see
+        //     buildRowElement bonus TODO below) and add 'is-selected'.
 
-    // create 7 <td> cells: year, month, country, district, purpose, arrivals, avgStayNights
-    const cells = [
-      "year",
-      "month",
-      "country",
-      "district",
-      "purpose",
-      "arrivals",
-      "avgStayNights",
-    ];
-    for (const cell of cells) {
-      const td = document.createElement("td");
-      // purpose is wrapped in a <span class="purpose-badge">
-      if (cell === "purpose") {
-        const span = document.createElement("span");
-        span.classList.add("purpose-badge");
-        span.textContent = row[cell];
-        td.appendChild(span);
-      } else {
-        td.textContent = row[cell];
-      }
-      // the last two cells must have class "num" (right-aligned monospace)
-      if (cell === "arrivals" || cell === "avgStayNights") {
-        td.classList.add("num");
-      }
-      // use formatNumber on arrivals for thousands
-      if (cell === "arrivals") {
-        td.textContent = formatNumber(td.textContent);
-      }
-      // append the cell to the row
-      tr.appendChild(td);
+        // set textContent on each detail-* field
+        els.detailYear.textContent = row.year;
+        els.detailMonth.textContent = row.month;
+        els.detailCountry.textContent = row.country;
+        els.detailDistrict.textContent = row.district;
+        els.detailPurpose.textContent = row.purpose;
+        els.detailId.textContent = row.id;
+        // detailArrivals: use formatNumber(row.arrivals)
+        els.detailArrivals.textContent = formatNumber(row.arrivals);
+        // detailStay: `${row.avgStayNights} nights`
+        els.detailStay.textContent = `${row.avgStayNights} nights`;
+
+        // add 'is-visible' class to els.detail
+        els.detail.classList.add("is-visible");
+
+        // set aria-hidden="false" on els.detail
+        els.detail.setAttribute("aria-hidden", "false");
+
+        // find the <tr> in the tbody with matching data-row-id and add 'is-selected'
+        // remove 'is-selected' from the old selected row, if any
+        const oldSelectedRow = els.tbody.querySelector(`tr.is-selected`);
+        if (oldSelectedRow) oldSelectedRow.classList.remove("is-selected");
+        // find the new <tr> in the current visible set
+        const newSelectedRow = els.tbody.querySelector(
+            `tr[data-row-id="${row.id}"]`,
+        );
+        if (newSelectedRow) newSelectedRow.classList.add("is-selected");
     }
-    // return the <tr>
-    return tr;
-  }
 
-  /**
-   * Replace tbody contents with rows from the given array.
-   * If the array is empty, render a single "no results" row.
-   */
-  function renderTable(visibleRows) {
-    // TODO (2):
-    //   - Clear els.tbody (replaceChildren() is idiomatic).
-    //   - If visibleRows.length === 0:
-    //       * Create <tr class="empty-row"><td colspan="7">No results match
-    //         your search and filters.</td></tr> and append.
-    //       * Return early.
-    //   - Otherwise build all rows into a DocumentFragment, then append once.
+    /**
+     * Close the modal and clear any row highlight.
+     */
+    function hideDetail() {
+        // TODO (BONUS-UI-2):
+        //   - Remove 'is-visible' class from els.detail.
+        //   - Set aria-hidden="true" on els.detail.
+        //   - Remove 'is-selected' from whichever tbody tr currently has it.
 
-    // clear els.tbody
-    els.tbody.replaceChildren();
-    // if visibleRows is === 0
-    if (visibleRows.length === 0) {
-      // Create <tr class="empty-row">
-      const tr = document.createElement("tr");
-      tr.classList.add("empty-row");
-      const td = document.createElement("td");
-      // <td colSpan="7">no results</td> using textContent
-      td.colSpan = 7;
-      td.textContent = "no results";
-      // append the <td> to the <tr>, then append the <tr> to els.tbody
-      tr.appendChild(td);
-      els.tbody.appendChild(tr);
-      // return early
-      return;
+        els.detail.classList.remove("is-visible");
+        els.detail.setAttribute("aria-hidden", "true");
+        // remove 'is-selected' from the selected row (if any)
+        const selectedRow = document.querySelector(`tr.is-selected`);
+        if (selectedRow) selectedRow.classList.remove("is-selected");
     }
-    // otherwise build all rows into a DocumentFragment, then append once
-    const fragment = document.createDocumentFragment();
-    for (const row of visibleRows) {
-      fragment.appendChild(buildRowElement(row));
+
+    // -------------------------------------------------------------------------
+    // DOM EVENT HANDLERS — user input → service method calls
+    // -------------------------------------------------------------------------
+
+    function onSearchInput(domEvent) {
+        // TODO (6): call dataService.setSearch(domEvent.target.value).
+        //
+        //   Note on debouncing: for a 276-row dataset this is fine to fire
+        //   on every keystroke. In production you'd debounce; keeping it
+        //   simple here keeps the pattern the focus.
+
+        dataService.setSearch(domEvent.target.value);
     }
-    els.tbody.appendChild(fragment);
-  }
 
-  /**
-   * Update the sort indicator arrows on the <th> elements.
-   * Remove .is-sort-asc / .is-sort-desc from ALL headers, then add
-   * the correct class to the active header.
-   */
-  function renderSortIndicators(sortColumn, sortDirection) {
-    // TODO (3):
-    //   - For every header in els.sortHeaders:
-    //       * Remove 'is-sort-asc' and 'is-sort-desc'.
-    //   - If sortColumn is null, return (nothing is sorted).
-    //   - Find the header whose data-sort-column === sortColumn.
-    //   - Add 'is-sort-asc' or 'is-sort-desc' based on sortDirection.
+    function onFilterChange(domEvent) {
+        // TODO (7):
+        //   - Read domEvent.target.dataset.role (it will be one of
+        //     'filter-district', 'filter-purpose', 'filter-year').
+        //   - Map the role to the filter key ('district', 'purpose', 'year').
+        //   - Call dataService.setFilter(key, domEvent.target.value).
 
-    //for every header in els.sortHeaders
-    for (const header of els.sortHeaders) {
-      // remove 'is-sort-asc' and 'is-sort-desc'
-      header.classList.remove("is-sort-asc", "is-sort-desc");
+        // read domEvent.target.dataset.role
+        const role = domEvent.target.dataset.role;
+        // map role to filter key ('district', 'purpose', 'year')
+        const key = role.replace("filter-", "");
+        // call dataService.setFilter(key, domEvent.target.value)
+        dataService.setFilter(key, domEvent.target.value);
     }
-    // if sortColumn is null, return (nothing is sorted)
-    if (sortColumn === null) {
-      return;
+
+    function onSortHeaderClick(domEvent) {
+        // TODO (8):
+        //   - Find the closest <th> ancestor with data-sort-column.
+        //   - Read the column name from its dataset.
+        //   - Call dataService.setSort(column).
+
+        // find the closest <th> ancestor with data-sort-column
+        const th = domEvent.target.closest("[data-sort-column]");
+        // read the column name from its dataset
+        const column = th.dataset.sortColumn;
+        // call dataService.setSort(column)
+        dataService.setSort(column);
     }
-    // find the header whose data-sort-column === sortColumn
-    const activeHeader = Array.from(els.sortHeaders).find(
-      (header) => header.dataset.sortColumn === sortColumn,
-    );
-    // add 'is-sort-asc' or 'is-sort-desc' based on sortDirection
-    if (activeHeader) {
-      activeHeader.classList.add(
-        sortDirection === "asc" ? "is-sort-asc" : "is-sort-desc",
-      );
+
+    function onResetClick() {
+        // TODO (9):
+        //   - Clear all input/select values in the DOM:
+        //       els.search.value = '';
+        //       els.filterDistrict.value = '';
+        //       els.filterPurpose.value = '';
+        //       els.filterYear.value = '';
+        //   - Call dataService.resetView().
+
+        // clear all input/select values in the DOM
+        els.search.value = "";
+        els.filterDistrict.value = "";
+        els.filterPurpose.value = "";
+        els.filterYear.value = "";
+        // call dataService.resetView()
+        dataService.resetView();
     }
-  }
 
-  /**
-   * Update the pagination controls.
-   *   - Page info: "Page X of Y"
-   *   - First/Prev: disabled when on page 1
-   *   - Next/Last:  disabled when on last page
-   */
-  function renderPagination(page, pageCount) {
-    // TODO (4):
-    //   - els.pageInfo.textContent = `Page ${page} of ${pageCount}`
-    //   - els.pageFirst.disabled = page <= 1
-    //   - els.pagePrev.disabled  = page <= 1
-    //   - els.pageNext.disabled  = page >= pageCount
-    //   - els.pageLast.disabled  = page >= pageCount
+    // Pagination handlers — each calls setPage with the right number.
+    // `currentPage` and `pageCount` are captured in module-level vars
+    // that update on every view:changed. See wireSubscriptions().
+    let currentPage = 1;
+    let currentPageCount = 1;
 
-    els.pageInfo.textContent = `Page ${page} of ${pageCount}`;
-    els.pageFirst.disabled = page <= 1;
-    els.pagePrev.disabled = page <= 1;
-    els.pageNext.disabled = page >= pageCount;
-    els.pageLast.disabled = page >= pageCount;
-  }
-
-  /**
-   * Update the status bar above the table.
-   * Example: "Showing 20 of 142 rows (filtered from 276 total)"
-   */
-  function renderStatus(totalFiltered, totalAll, visibleCount) {
-    // TODO (5):
-    //   - Remove 'is-error' class from els.status (in case previous state was error).
-    //   - Build message:
-    //       * If totalFiltered === totalAll: `Showing ${visibleCount} of ${totalAll} rows`
-    //       * Else: `Showing ${visibleCount} of ${totalFiltered} rows (filtered from ${totalAll} total)`
-    //   - Use formatNumber() for each count.
-    //   - els.statusText.textContent = message
-
-    // remove 'is-error' class from els.status (in case previous state was error)
-    els.status.classList.remove("is-error");
-    // build message
-    let message;
-    if (totalFiltered === totalAll) {
-      message = `Showing ${visibleCount} of ${totalAll} rows`;
-    } else {
-      message = `Showing ${visibleCount} of ${totalFiltered} rows (filtered from ${totalAll} total)`;
+    function onPageFirst() {
+        dataService.setPage(1);
     }
-    // use formatNumber() for each count
-    message = message.replace(/\d+/g, (n) => formatNumber(n));
-    // set textContent to message
-    els.statusText.textContent = message;
-  }
-
-  function showStatus(message, opts = {}) {
-    els.statusText.textContent = message;
-    els.status.classList.toggle("is-error", Boolean(opts.error));
-  }
-
-  // ==========================================================================
-  //  EXTRA CREDIT: Row Detail Modal Renderers (+5 of the 10 bonus points)
-  // --------------------------------------------------------------------------
-  //  These render the modal open/closed and populate its fields.
-  //  Also highlight the selected row in the table body.
-  //
-  //  If you skip extra credit, remove these functions AND the bonus
-  //  subscriptions below. Leaving empty stubs causes silent bugs.
-  // ==========================================================================
-
-  /**
-   * Populate the modal fields from a row and make it visible.
-   * Also add .is-selected to the corresponding table row (if visible).
-   */
-  function showDetail(row) {
-    // TODO (BONUS-UI-1):
-    //   - Set textContent on each detail-* field:
-    //       detailYear, detailMonth, detailCountry, detailDistrict,
-    //       detailPurpose, detailId
-    //   - detailArrivals:   use formatNumber(row.arrivals)
-    //   - detailStay:       `${row.avgStayNights} nights`
-    //   - Add 'is-visible' class to els.detail.
-    //   - Set aria-hidden="false" on els.detail.
-    //   - Find the <tr> in the tbody with matching data-row-id (see
-    //     buildRowElement bonus TODO below) and add 'is-selected'.
-  }
-
-  /**
-   * Close the modal and clear any row highlight.
-   */
-  function hideDetail() {
-    // TODO (BONUS-UI-2):
-    //   - Remove 'is-visible' class from els.detail.
-    //   - Set aria-hidden="true" on els.detail.
-    //   - Remove 'is-selected' from whichever tbody tr currently has it.
-  }
-
-  // -------------------------------------------------------------------------
-  // DOM EVENT HANDLERS — user input → service method calls
-  // -------------------------------------------------------------------------
-
-  function onSearchInput(domEvent) {
-    // TODO (6): call dataService.setSearch(domEvent.target.value).
-    //
-    //   Note on debouncing: for a 276-row dataset this is fine to fire
-    //   on every keystroke. In production you'd debounce; keeping it
-    //   simple here keeps the pattern the focus.
-
-    dataService.setSearch(domEvent.target.value);
-  }
-
-  function onFilterChange(domEvent) {
-    // TODO (7):
-    //   - Read domEvent.target.dataset.role (it will be one of
-    //     'filter-district', 'filter-purpose', 'filter-year').
-    //   - Map the role to the filter key ('district', 'purpose', 'year').
-    //   - Call dataService.setFilter(key, domEvent.target.value).
-
-    // read domEvent.target.dataset.role
-    const role = domEvent.target.dataset.role;
-    // map role to filter key ('district', 'purpose', 'year')
-    const key = role.replace("filter-", "");
-    // call dataService.setFilter(key, domEvent.target.value)
-    dataService.setFilter(key, domEvent.target.value);
-  }
-
-  function onSortHeaderClick(domEvent) {
-    // TODO (8):
-    //   - Find the closest <th> ancestor with data-sort-column.
-    //   - Read the column name from its dataset.
-    //   - Call dataService.setSort(column).
-
-    // find the closest <th> ancestor with data-sort-column
-    const th = domEvent.target.closest("[data-sort-column]");
-    // read the column name from its dataset
-    const column = th.dataset.sortColumn;
-    // call dataService.setSort(column)
-    dataService.setSort(column);
-  }
-
-  function onResetClick() {
-    // TODO (9):
-    //   - Clear all input/select values in the DOM:
-    //       els.search.value = '';
-    //       els.filterDistrict.value = '';
-    //       els.filterPurpose.value = '';
-    //       els.filterYear.value = '';
-    //   - Call dataService.resetView().
-
-    // clear all input/select values in the DOM
-    els.search.value = "";
-    els.filterDistrict.value = "";
-    els.filterPurpose.value = "";
-    els.filterYear.value = "";
-    // call dataService.resetView()
-    dataService.resetView();
-  }
-
-  // Pagination handlers — each calls setPage with the right number.
-  // `currentPage` and `pageCount` are captured in module-level vars
-  // that update on every view:changed. See wireSubscriptions().
-  let currentPage = 1;
-  let currentPageCount = 1;
-
-  function onPageFirst() {
-    dataService.setPage(1);
-  }
-  function onPagePrev() {
-    dataService.setPage(Math.max(1, currentPage - 1));
-  }
-  function onPageNext() {
-    dataService.setPage(Math.min(currentPageCount, currentPage + 1));
-  }
-  function onPageLast() {
-    dataService.setPage(currentPageCount);
-  }
-
-  // ==========================================================================
-  //  EXTRA CREDIT: Detail Handlers (+5 of the 10 bonus points)
-  // ==========================================================================
-
-  /**
-   * Click on the table body — open detail for the clicked row.
-   * Uses event delegation on els.tbody (already wired in mount).
-   */
-  function onRowClick(domEvent) {
-    // TODO (BONUS-UI-3):
-    //   - Find the closest <tr> ancestor of domEvent.target.
-    //   - If none, or if the tr has class 'empty-row', return.
-    //   - Read data-row-id from its dataset and convert to Number.
-    //   - Call dataService.selectRow(id).
-  }
-
-  /**
-   * Click the close button, or click outside the panel (on the backdrop),
-   * or press Escape — any of these should close the modal.
-   */
-  function onDetailClose() {
-    dataService.clearSelection();
-  }
-
-  function onDetailBackdropClick(domEvent) {
-    // Only close if the click was on the backdrop itself, not the panel.
-    if (domEvent.target === els.detail) {
-      dataService.clearSelection();
+    function onPagePrev() {
+        dataService.setPage(Math.max(1, currentPage - 1));
     }
-  }
-
-  function onEscapeKey(domEvent) {
-    if (
-      domEvent.key === "Escape" &&
-      els.detail.classList.contains("is-visible")
-    ) {
-      dataService.clearSelection();
+    function onPageNext() {
+        dataService.setPage(Math.min(currentPageCount, currentPage + 1));
     }
-  }
+    function onPageLast() {
+        dataService.setPage(currentPageCount);
+    }
 
-  // -------------------------------------------------------------------------
-  // SUBSCRIPTION WIRING
-  // -------------------------------------------------------------------------
+    // ==========================================================================
+    //  EXTRA CREDIT: Detail Handlers (+5 of the 10 bonus points)
+    // ==========================================================================
 
-  function subscribe(eventName, handler) {
-    eventBus.on(eventName, handler);
-    subscriptions.push({ event: eventName, handler });
-  }
+    /**
+     * Click on the table body — open detail for the clicked row.
+     * Uses event delegation on els.tbody (already wired in mount).
+     */
+    function onRowClick(domEvent) {
+        // TODO (BONUS-UI-3):
+        //   - Find the closest <tr> ancestor of domEvent.target.
+        //   - If none, or if the tr has class 'empty-row', return.
+        //   - Read data-row-id from its dataset and convert to Number.
+        //   - Call dataService.selectRow(id).
 
-  function wireSubscriptions() {
-    // TODO (10): wire all four event types.
-    //
-    //   - 'data:loading'    → showStatus('Loading tourism data…')
-    //
-    //   - 'data:loadFailed' → showStatus(`Failed to load data: ${message}`, { error: true })
-    //
-    //   - 'view:changed' with payload { visibleRows, totalFiltered, totalAll,
-    //                                   page, pageCount, sortColumn, sortDirection }:
-    //       * renderTable(visibleRows)
-    //       * renderSortIndicators(sortColumn, sortDirection)
-    //       * renderPagination(page, pageCount)
-    //       * renderStatus(totalFiltered, totalAll, visibleRows.length)
-    //       * update currentPage and currentPageCount (needed by pagination handlers)
-    //
-    //   'data:loaded' can be skipped — 'view:changed' fires right after.
-    //
-    //   EXTRA CREDIT — also subscribe to:
-    //   - 'row:selected'   → showDetail(row)
-    //   - 'row:deselected' → hideDetail()
+        const tr = domEvent.target.closest("tr");
+        if (!tr || tr.classList.contains("empty-row")) return;
+        const id = Number(tr.dataset.rowId);
+        dataService.selectRow(id);
+    }
 
-    // data:loading → showStatus('Loading tourism data...') SUBSCRIPTION
-    subscribe("data:loading", () => {
-      showStatus("Loading tourism data...");
+    /**
+     * Click the close button, or click outside the panel (on the backdrop),
+     * or press Escape — any of these should close the modal.
+     */
+    function onDetailClose() {
+        dataService.clearSelection();
+    }
+
+    function onDetailBackdropClick(domEvent) {
+        // Only close if the click was on the backdrop itself, not the panel.
+        if (domEvent.target === els.detail) {
+            dataService.clearSelection();
+        }
+    }
+
+    function onEscapeKey(domEvent) {
+        if (
+            domEvent.key === "Escape" &&
+            els.detail.classList.contains("is-visible")
+        ) {
+            dataService.clearSelection();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SUBSCRIPTION WIRING
+    // -------------------------------------------------------------------------
+
+    function subscribe(eventName, handler) {
+        eventBus.on(eventName, handler);
+        subscriptions.push({ event: eventName, handler });
+    }
+
+    function wireSubscriptions() {
+        // TODO (10): wire all four event types.
+        //
+        //   - 'data:loading'    → showStatus('Loading tourism data…')
+        //
+        //   - 'data:loadFailed' → showStatus(`Failed to load data: ${message}`, { error: true })
+        //
+        //   - 'view:changed' with payload { visibleRows, totalFiltered, totalAll,
+        //                                   page, pageCount, sortColumn, sortDirection }:
+        //       * renderTable(visibleRows)
+        //       * renderSortIndicators(sortColumn, sortDirection)
+        //       * renderPagination(page, pageCount)
+        //       * renderStatus(totalFiltered, totalAll, visibleRows.length)
+        //       * update currentPage and currentPageCount (needed by pagination handlers)
+        //
+        //   'data:loaded' can be skipped — 'view:changed' fires right after.
+        //
+        //   EXTRA CREDIT — also subscribe to:
+        //   - 'row:selected'   → showDetail(row)
+        //   - 'row:deselected' → hideDetail()
+
+        // data:loading → showStatus('Loading tourism data...') SUBSCRIPTION
+        subscribe("data:loading", () => {
+            showStatus("Loading tourism data...");
+        });
+
+        // data:loadFailed → showStatus('Failed to load data: ${message}, { error: true }') SUBSCRIPTION
+        subscribe("data:loadFailed", (data) => {
+            showStatus(`Failed to load data: ${data.message}`, { error: true });
+        });
+
+        //   SUBSCRIPTION - 'view:changed' with payload { visibleRows, totalFiltered, totalAll,
+        //                                   page, pageCount, sortColumn, sortDirection }:
+        subscribe("view:changed", (payload) => {
+            const {
+                visibleRows,
+                totalFiltered,
+                totalAll,
+                page,
+                pageCount,
+                sortColumn,
+                sortDirection,
+            } = payload;
+
+            renderTable(visibleRows);
+            renderSortIndicators(sortColumn, sortDirection);
+            renderPagination(page, pageCount);
+            renderStatus(totalFiltered, totalAll, visibleRows.length);
+
+            currentPage = page;
+            currentPageCount = pageCount;
+        });
+    }
+
+    // BONUS SUBSCRIPTIONS
+    // - 'row:selected'   → showDetail(row) SUBSCRIPTION
+    subscribe("row:selected", (payload) => {
+        showDetail(payload.row);
+    });
+    // - 'row:deselected' → hideDetail() SUBSCRIPTION
+    subscribe("row:deselected", () => {
+        hideDetail();
     });
 
-    // data:loadFailed → showStatus('Failed to load data: ${message}, { error: true }') SUBSCRIPTION
-    subscribe("data:loadFailed", (data) => {
-      showStatus(`Failed to load data: ${data.message}`, { error: true });
-    });
+    // -------------------------------------------------------------------------
+    // LIFECYCLE
+    // -------------------------------------------------------------------------
 
-    //   SUBSCRIPTION - 'view:changed' with payload { visibleRows, totalFiltered, totalAll,
-    //                                   page, pageCount, sortColumn, sortDirection }:
-    subscribe("view:changed", (payload) => {
-      const {
-        visibleRows,
-        totalFiltered,
-        totalAll,
-        page,
-        pageCount,
-        sortColumn,
-        sortDirection,
-      } = payload;
+    function mount() {
+        els.tbody = rootEl.querySelector('[data-role="tbody"]');
+        els.search = rootEl.querySelector('[data-role="search"]');
+        els.filterDistrict = rootEl.querySelector(
+            '[data-role="filter-district"]',
+        );
+        els.filterPurpose = rootEl.querySelector(
+            '[data-role="filter-purpose"]',
+        );
+        els.filterYear = rootEl.querySelector('[data-role="filter-year"]');
+        els.resetBtn = rootEl.querySelector('[data-role="reset"]');
+        els.status = rootEl.querySelector('[data-role="status"]');
+        els.statusText = rootEl.querySelector('[data-role="status-text"]');
+        els.pageFirst = rootEl.querySelector('[data-role="page-first"]');
+        els.pagePrev = rootEl.querySelector('[data-role="page-prev"]');
+        els.pageNext = rootEl.querySelector('[data-role="page-next"]');
+        els.pageLast = rootEl.querySelector('[data-role="page-last"]');
+        els.pageInfo = rootEl.querySelector('[data-role="page-info"]');
+        els.sortHeaders = rootEl.querySelectorAll('[data-role="sort-header"]');
 
-      renderTable(visibleRows);
-      renderSortIndicators(sortColumn, sortDirection);
-      renderPagination(page, pageCount);
-      renderStatus(totalFiltered, totalAll, visibleRows.length);
+        // --- EXTRA CREDIT: modal elements ---
+        els.detail = rootEl.querySelector('[data-role="row-detail"]');
+        els.detailClose = rootEl.querySelector('[data-role="detail-close"]');
+        els.detailYear = rootEl.querySelector('[data-role="detail-year"]');
+        els.detailMonth = rootEl.querySelector('[data-role="detail-month"]');
+        els.detailCountry = rootEl.querySelector(
+            '[data-role="detail-country"]',
+        );
+        els.detailDistrict = rootEl.querySelector(
+            '[data-role="detail-district"]',
+        );
+        els.detailPurpose = rootEl.querySelector(
+            '[data-role="detail-purpose"]',
+        );
+        els.detailArrivals = rootEl.querySelector(
+            '[data-role="detail-arrivals"]',
+        );
+        els.detailStay = rootEl.querySelector('[data-role="detail-stay"]');
+        els.detailId = rootEl.querySelector('[data-role="detail-id"]');
 
-      currentPage = page;
-      currentPageCount = pageCount;
-    });
-  }
+        // Attach DOM listeners.
+        els.search.addEventListener("input", onSearchInput);
+        els.filterDistrict.addEventListener("change", onFilterChange);
+        els.filterPurpose.addEventListener("change", onFilterChange);
+        els.filterYear.addEventListener("change", onFilterChange);
+        els.resetBtn.addEventListener("click", onResetClick);
 
-  // -------------------------------------------------------------------------
-  // LIFECYCLE
-  // -------------------------------------------------------------------------
+        // Event delegation on the table head for sort clicks.
+        const thead = rootEl.querySelector(".data-table thead");
+        thead.addEventListener("click", onSortHeaderClick);
 
-  function mount() {
-    els.tbody = rootEl.querySelector('[data-role="tbody"]');
-    els.search = rootEl.querySelector('[data-role="search"]');
-    els.filterDistrict = rootEl.querySelector('[data-role="filter-district"]');
-    els.filterPurpose = rootEl.querySelector('[data-role="filter-purpose"]');
-    els.filterYear = rootEl.querySelector('[data-role="filter-year"]');
-    els.resetBtn = rootEl.querySelector('[data-role="reset"]');
-    els.status = rootEl.querySelector('[data-role="status"]');
-    els.statusText = rootEl.querySelector('[data-role="status-text"]');
-    els.pageFirst = rootEl.querySelector('[data-role="page-first"]');
-    els.pagePrev = rootEl.querySelector('[data-role="page-prev"]');
-    els.pageNext = rootEl.querySelector('[data-role="page-next"]');
-    els.pageLast = rootEl.querySelector('[data-role="page-last"]');
-    els.pageInfo = rootEl.querySelector('[data-role="page-info"]');
-    els.sortHeaders = rootEl.querySelectorAll('[data-role="sort-header"]');
+        // Event delegation on the tbody for row clicks (extra credit).
+        els.tbody.addEventListener("click", onRowClick);
 
-    // --- EXTRA CREDIT: modal elements ---
-    els.detail = rootEl.querySelector('[data-role="row-detail"]');
-    els.detailClose = rootEl.querySelector('[data-role="detail-close"]');
-    els.detailYear = rootEl.querySelector('[data-role="detail-year"]');
-    els.detailMonth = rootEl.querySelector('[data-role="detail-month"]');
-    els.detailCountry = rootEl.querySelector('[data-role="detail-country"]');
-    els.detailDistrict = rootEl.querySelector('[data-role="detail-district"]');
-    els.detailPurpose = rootEl.querySelector('[data-role="detail-purpose"]');
-    els.detailArrivals = rootEl.querySelector('[data-role="detail-arrivals"]');
-    els.detailStay = rootEl.querySelector('[data-role="detail-stay"]');
-    els.detailId = rootEl.querySelector('[data-role="detail-id"]');
+        els.pageFirst.addEventListener("click", onPageFirst);
+        els.pagePrev.addEventListener("click", onPagePrev);
+        els.pageNext.addEventListener("click", onPageNext);
+        els.pageLast.addEventListener("click", onPageLast);
 
-    // Attach DOM listeners.
-    els.search.addEventListener("input", onSearchInput);
-    els.filterDistrict.addEventListener("change", onFilterChange);
-    els.filterPurpose.addEventListener("change", onFilterChange);
-    els.filterYear.addEventListener("change", onFilterChange);
-    els.resetBtn.addEventListener("click", onResetClick);
+        // --- EXTRA CREDIT: modal listeners ---
+        els.detailClose.addEventListener("click", onDetailClose);
+        els.detail.addEventListener("click", onDetailBackdropClick);
+        document.addEventListener("keydown", onEscapeKey);
 
-    // Event delegation on the table head for sort clicks.
-    const thead = rootEl.querySelector(".data-table thead");
-    thead.addEventListener("click", onSortHeaderClick);
+        // Subscribe to service events.
+        wireSubscriptions();
+    }
 
-    // Event delegation on the tbody for row clicks (extra credit).
-    els.tbody.addEventListener("click", onRowClick);
+    function unmount() {
+        els.search.removeEventListener("input", onSearchInput);
+        els.filterDistrict.removeEventListener("change", onFilterChange);
+        els.filterPurpose.removeEventListener("change", onFilterChange);
+        els.filterYear.removeEventListener("change", onFilterChange);
+        els.resetBtn.removeEventListener("click", onResetClick);
 
-    els.pageFirst.addEventListener("click", onPageFirst);
-    els.pagePrev.addEventListener("click", onPagePrev);
-    els.pageNext.addEventListener("click", onPageNext);
-    els.pageLast.addEventListener("click", onPageLast);
+        const thead = rootEl.querySelector(".data-table thead");
+        thead.removeEventListener("click", onSortHeaderClick);
 
-    // --- EXTRA CREDIT: modal listeners ---
-    els.detailClose.addEventListener("click", onDetailClose);
-    els.detail.addEventListener("click", onDetailBackdropClick);
-    document.addEventListener("keydown", onEscapeKey);
+        els.tbody.removeEventListener("click", onRowClick);
 
-    // Subscribe to service events.
-    wireSubscriptions();
-  }
+        els.pageFirst.removeEventListener("click", onPageFirst);
+        els.pagePrev.removeEventListener("click", onPagePrev);
+        els.pageNext.removeEventListener("click", onPageNext);
+        els.pageLast.removeEventListener("click", onPageLast);
 
-  function unmount() {
-    els.search.removeEventListener("input", onSearchInput);
-    els.filterDistrict.removeEventListener("change", onFilterChange);
-    els.filterPurpose.removeEventListener("change", onFilterChange);
-    els.filterYear.removeEventListener("change", onFilterChange);
-    els.resetBtn.removeEventListener("click", onResetClick);
+        els.detailClose.removeEventListener("click", onDetailClose);
+        els.detail.removeEventListener("click", onDetailBackdropClick);
+        document.removeEventListener("keydown", onEscapeKey);
 
-    const thead = rootEl.querySelector(".data-table thead");
-    thead.removeEventListener("click", onSortHeaderClick);
+        subscriptions.forEach(({ event, handler }) =>
+            eventBus.off(event, handler),
+        );
+        subscriptions.length = 0;
+    }
 
-    els.tbody.removeEventListener("click", onRowClick);
-
-    els.pageFirst.removeEventListener("click", onPageFirst);
-    els.pagePrev.removeEventListener("click", onPagePrev);
-    els.pageNext.removeEventListener("click", onPageNext);
-    els.pageLast.removeEventListener("click", onPageLast);
-
-    els.detailClose.removeEventListener("click", onDetailClose);
-    els.detail.removeEventListener("click", onDetailBackdropClick);
-    document.removeEventListener("keydown", onEscapeKey);
-
-    subscriptions.forEach(({ event, handler }) => eventBus.off(event, handler));
-    subscriptions.length = 0;
-  }
-
-  return Object.freeze({ mount, unmount });
+    return Object.freeze({ mount, unmount });
 }

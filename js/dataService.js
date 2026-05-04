@@ -100,446 +100,464 @@ const PAGE_SIZE = 20;
  * @returns {object} public API
  */
 export function createDataService(eventBus, dataUrl) {
-  if (!eventBus || typeof eventBus.emit !== "function") {
-    throw new TypeError("createDataService requires an event bus.");
-  }
-  if (typeof dataUrl !== "string") {
-    throw new TypeError("createDataService requires a dataUrl string.");
-  }
+    if (!eventBus || typeof eventBus.emit !== "function") {
+        throw new TypeError("createDataService requires an event bus.");
+    }
+    if (typeof dataUrl !== "string") {
+        throw new TypeError("createDataService requires a dataUrl string.");
+    }
 
-  // -------------------------------------------------------------------------
-  // Private state — sealed in closure. Never expose.
-  // -------------------------------------------------------------------------
-  let state = createInitialState();
+    // -------------------------------------------------------------------------
+    // Private state — sealed in closure. Never expose.
+    // -------------------------------------------------------------------------
+    let state = createInitialState();
 
-  function createInitialState() {
-    return {
-      status: "idle",
-      allRows: [],
-      view: {
-        searchTerm: "",
-        filters: {
-          district: "",
-          purpose: "",
-          year: "",
-        },
-        sortColumn: null,
-        sortDirection: "asc",
-        page: 1,
-        pageSize: PAGE_SIZE,
-      },
-      selectedRowId: null, // used only by extra-credit row detail feature
+    function createInitialState() {
+        return {
+            status: "idle",
+            allRows: [],
+            view: {
+                searchTerm: "",
+                filters: {
+                    district: "",
+                    purpose: "",
+                    year: "",
+                },
+                sortColumn: null,
+                sortDirection: "asc",
+                page: 1,
+                pageSize: PAGE_SIZE,
+            },
+            selectedRowId: null, // used only by extra-credit row detail feature
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Pure helpers — no state mutation, no side effects.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Apply the current search term to `rows`. Returns a NEW array.
+     * Search matches against the `country` field, case-insensitively.
+     * Empty search returns rows unchanged.
+     */
+    function applySearch(rows, searchTerm) {
+        // TODO (1):
+        //   - If searchTerm is empty (after trimming), return rows as-is.
+        //     (Returning the same reference is fine — it's a read.)
+        //   - Otherwise return rows.filter(...) where the row's `country`
+        //     (lowercased) includes the searchTerm (lowercased and trimmed).
+
+        // if search term is empty, return rows as-is
+        const trimmedSearchTerm = searchTerm.trim().toLowerCase();
+        if (trimmedSearchTerm === "") return rows;
+        // otherwise, filter rows by country (case-insensitive)
+        return rows.filter((row) =>
+            row.country.toLowerCase().includes(trimmedSearchTerm),
+        );
+    }
+
+    /**
+     * Apply the current filters to `rows`. Returns a NEW array.
+     * A filter value of '' means "no filter on this field" — skip it.
+     * All non-empty filters must match (AND logic).
+     *
+     * Note: `filters.year` is a STRING from the <select>, so when comparing
+     *        to row.year (a number), convert as needed.
+     */
+    function applyFilters(rows, filters) {
+        // TODO (2):
+        //   - Return rows.filter(row => every non-empty filter matches).
+        //   - Check filters.district: if non-empty, row.district must equal it.
+        //   - Check filters.purpose:  if non-empty, row.purpose must equal it.
+        //   - Check filters.year:     if non-empty, String(row.year) must equal it.
+        //                             (Because the select emits strings.)
+
+        // filters
+        const { district, purpose, year } = filters;
+        // filter rows based on district, purpose, and year (if filter is non-empty)
+        return rows.filter((row) => {
+            return (
+                (district === "" || row.district === district) &&
+                (purpose === "" || row.purpose === purpose) &&
+                // String() because the select emits strings
+                (year === "" || String(row.year) === year)
+            );
+        });
+    }
+
+    /**
+     * Sort `rows` by the given column. Returns a NEW array.
+     * If sortColumn is null, return rows unchanged.
+     * Direction is 'asc' or 'desc'.
+     *
+     * Sort behavior:
+     *   - Numeric columns (year, arrivals, avgStayNights): numeric comparison.
+     *   - String columns (month, country, district, purpose): localeCompare.
+     *
+     * For MONTH specifically: sort by calendar order (January < February < ...),
+     * NOT alphabetical. A MONTH_ORDER constant is provided below.
+     */
+    const MONTH_ORDER = {
+        January: 1,
+        February: 2,
+        March: 3,
+        April: 4,
+        May: 5,
+        June: 6,
+        July: 7,
+        August: 8,
+        September: 9,
+        October: 10,
+        November: 11,
+        December: 12,
     };
-  }
 
-  // -------------------------------------------------------------------------
-  // Pure helpers — no state mutation, no side effects.
-  // -------------------------------------------------------------------------
+    function applySort(rows, sortColumn, sortDirection) {
+        // TODO (3):
+        //   - If sortColumn is null, return rows as-is.
+        //   - Clone rows first (never mutate input): `rows.slice()`.
+        //   - Call .sort() on the clone with a comparator that:
+        //       * If sortColumn is 'month', uses MONTH_ORDER[row.month] on both sides.
+        //       * If the values are numbers, subtracts them.
+        //       * Otherwise uses String(a).localeCompare(String(b)).
+        //   - If sortDirection is 'desc', reverse the result.
+        //   - Return the sorted clone.
 
-  /**
-   * Apply the current search term to `rows`. Returns a NEW array.
-   * Search matches against the `country` field, case-insensitively.
-   * Empty search returns rows unchanged.
-   */
-  function applySearch(rows, searchTerm) {
-    // TODO (1):
-    //   - If searchTerm is empty (after trimming), return rows as-is.
-    //     (Returning the same reference is fine — it's a read.)
-    //   - Otherwise return rows.filter(...) where the row's `country`
-    //     (lowercased) includes the searchTerm (lowercased and trimmed).
+        // if sortColumn is null, return rows as-is
+        if (sortColumn === null) return rows;
+        // otherwise, clone rows first (never mutate input)
+        const sortedRows = rows.slice();
+        // sort the clone
+        sortedRows.sort((a, b) => {
+            // if sortColumn is 'month', use MONTH_ORDER to compare values
+            if (sortColumn === "month") {
+                return MONTH_ORDER[a.month] - MONTH_ORDER[b.month];
+            }
+            // get the values to compare
+            const valueA = a[sortColumn];
+            const valueB = b[sortColumn];
+            // if both values are numbers, subtract them
+            if (typeof valueA === "number" && typeof valueB === "number") {
+                return valueA - valueB;
+            }
+            // otherwise, use localeCompare to sort strings
+            return String(valueA).localeCompare(String(valueB));
+        });
+        // if sortDirection is 'desc', reverse the result
+        if (sortDirection === "desc") {
+            sortedRows.reverse();
+        }
+        // return the sorted clone
+        return sortedRows;
+    }
 
-    // if search term is empty, return rows as-is
-    const trimmedSearchTerm = searchTerm.trim().toLowerCase();
-    if (trimmedSearchTerm === "") return rows;
-    // otherwise, filter rows by country (case-insensitive)
-    return rows.filter((row) =>
-      row.country.toLowerCase().includes(trimmedSearchTerm),
-    );
-  }
+    /**
+     * Paginate `rows` — slice out the chunk for the current page.
+     * Pages are 1-based. Returns a NEW array.
+     */
+    function applyPagination(rows, page, pageSize) {
+        // TODO (4):
+        //   - startIndex = (page - 1) * pageSize
+        //   - return rows.slice(startIndex, startIndex + pageSize)
+        const startIndex = (page - 1) * pageSize;
+        return rows.slice(startIndex, startIndex + pageSize);
+    }
 
-  /**
-   * Apply the current filters to `rows`. Returns a NEW array.
-   * A filter value of '' means "no filter on this field" — skip it.
-   * All non-empty filters must match (AND logic).
-   *
-   * Note: `filters.year` is a STRING from the <select>, so when comparing
-   *        to row.year (a number), convert as needed.
-   */
-  function applyFilters(rows, filters) {
-    // TODO (2):
-    //   - Return rows.filter(row => every non-empty filter matches).
-    //   - Check filters.district: if non-empty, row.district must equal it.
-    //   - Check filters.purpose:  if non-empty, row.purpose must equal it.
-    //   - Check filters.year:     if non-empty, String(row.year) must equal it.
-    //                             (Because the select emits strings.)
+    /**
+     * Count the number of pages given a row count and page size.
+     * At least 1 (so "Page 1 of 1" displays even when there are 0 rows).
+     */
+    function computePageCount(rowCount, pageSize) {
+        // TODO (5):
+        //   - Math.max(1, Math.ceil(rowCount / pageSize))
+        return Math.max(1, Math.ceil(rowCount / pageSize));
+    }
 
-    // filters
-    const { district, purpose, year } = filters;
-    // filter rows based on district, purpose, and year (if filter is non-empty)
-    return rows.filter((row) => {
-      return (
-        (district === "" || row.district === district) &&
-        (purpose === "" || row.purpose === purpose) &&
-        // String() because the select emits strings
-        (year === "" || String(row.year) === year)
-      );
+    /**
+     * Clamp `page` into the valid range [1, pageCount].
+     * Used after filters/search change to avoid showing "page 7 of 3".
+     */
+    function clampPage(page, pageCount) {
+        // TODO (6):
+        //   - Math.min(pageCount, Math.max(1, page))
+        return Math.min(pageCount, Math.max(1, page));
+    }
+
+    // -------------------------------------------------------------------------
+    // Core computation — called after any view-parameter change.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Recompute the derived view from current state and emit 'view:changed'.
+     * This is THE central method. Every setter below ends by calling this.
+     *
+     * Pipeline:
+     *   allRows → search → filter → (count totalFiltered) → sort → paginate
+     *
+     * Do NOT mutate state.allRows. Every helper returns a new array.
+     */
+    function recomputeAndEmit() {
+        // TODO (7):
+        //   - If state.status !== 'ready', return (nothing to compute yet).
+        //   - searched   = applySearch(state.allRows, state.view.searchTerm)
+        //   - filtered   = applyFilters(searched,   state.view.filters)
+        //   - totalFiltered = filtered.length
+        //   - pageCount  = computePageCount(totalFiltered, state.view.pageSize)
+        //   - state.view.page = clampPage(state.view.page, pageCount)   // ← mutate
+        //   - sorted     = applySort(filtered, state.view.sortColumn, state.view.sortDirection)
+        //   - paginated  = applyPagination(sorted, state.view.page, state.view.pageSize)
+        //   - Emit 'view:changed' with the full payload shape documented at the top.
+
+        // If state.status !== 'ready', return (nothing to compute yet).
+        if (state.status !== "ready") return;
+        // Apply search, filters, sort, and pagination to compute the view state.
+        const searched = applySearch(state.allRows, state.view.searchTerm);
+        const filtered = applyFilters(searched, state.view.filters);
+        const totalFiltered = filtered.length;
+        const pageCount = computePageCount(totalFiltered, state.view.pageSize);
+        // Clamp page to the computed page count, and apply sort and pagination.
+        state.view.page = clampPage(state.view.page, pageCount);
+        const sorted = applySort(
+            filtered,
+            state.view.sortColumn,
+            state.view.sortDirection,
+        );
+        const paginated = applyPagination(
+            sorted,
+            state.view.page,
+            state.view.pageSize,
+        );
+        // Emit 'view:changed' with the computed view state.
+        // fixed to match actualy payload (autofill got me in trouble this time)
+        eventBus.emit("view:changed", {
+            visibleRows: paginated,
+            totalAll: state.allRows.length,
+            totalFiltered: totalFiltered,
+            page: state.view.page,
+            pageCount: pageCount,
+            pageSize: state.view.pageSize,
+            sortColumn: state.view.sortColumn,
+            sortDirection: state.view.sortDirection,
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch the JSON and populate allRows. Emits 'data:loading',
+     * then 'data:loaded' + 'view:changed' on success, or 'data:loadFailed' on error.
+     */
+    async function load() {
+        // TODO (8):
+        //   - Set state.status = 'loading' and emit 'data:loading' with null payload.
+        //   - Try: fetch(dataUrl), check response.ok, parse as JSON.
+        //     * If not ok, throw new Error(`HTTP ${response.status}`).
+        //   - On success:
+        //       * state.allRows = the parsed array
+        //       * state.status  = 'ready'
+        //       * emit 'data:loaded' with { totalAll: state.allRows.length }
+        //       * call recomputeAndEmit()  // so the table renders immediately
+        //   - On failure:
+        //       * state.status = 'error'
+        //       * emit 'data:loadFailed' with { message: err.message }
+
+        // Set state.status to 'loading', emit 'data:loading', and fetch the data.
+        // On success
+        try {
+            // Set state.status to 'loading'
+            state.status = "loading";
+            // Emit 'data:loading' with null
+            eventBus.emit("data:loading", null);
+            // Fetch the data from the server
+            const response = await fetch(dataUrl);
+            // If the response is not ok, throw an error
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            // Parse the response as JSON
+            const data = await response.json();
+            // Set state.allRows to the parsed array
+            state.allRows = data;
+            // Set state.status to 'ready'
+            state.status = "ready";
+            // Emit 'data:loaded' with { totalAll: data.length }
+            eventBus.emit("data:loaded", { totalAll: data.length });
+            // Call recomputeAndEmit() to update the table
+            recomputeAndEmit();
+            // On Failure
+        } catch (err) {
+            // Set state.status to 'error'
+            state.status = "error";
+            // Emit 'data:loadFailed' with { message: err.message }
+            eventBus.emit("data:loadFailed", { message: err.message });
+        }
+    }
+
+    /**
+     * Update the search term. Resets to page 1 (a new search shouldn't
+     * leave you stranded on page 5 of old results).
+     */
+    function setSearch(term) {
+        // TODO (9):
+        //   - state.view.searchTerm = String(term) (defensive)
+        //   - state.view.page = 1
+        //   - recomputeAndEmit()
+
+        // Set state.view.searchTerm to the stringified term
+        state.view.searchTerm = String(term);
+        // Set state.view.page to 1
+        state.view.page = 1;
+        // Call recomputeAndEmit() to update the table
+        recomputeAndEmit();
+    }
+
+    /**
+     * Update a single filter. Resets to page 1.
+     * @param {'district'|'purpose'|'year'} key
+     * @param {string} value   empty string means "clear this filter"
+     */
+    function setFilter(key, value) {
+        // TODO (10):
+        //   - Guard: if key is not one of the three allowed keys, return.
+        //     (Fail loud is fine — throw a TypeError.)
+        //   - state.view.filters[key] = String(value)
+        //   - state.view.page = 1
+        //   - recomputeAndEmit()
+
+        // Guard: if key is not one of the three allowed keys, return.
+        // Fail loud is fine — throw a TypeError.
+        if (key !== "district" && key !== "purpose" && key !== "year") {
+            throw new TypeError(`Invalid filter key: ${key}`);
+        }
+        // Set state.view.filters[key] to the stringified value
+        state.view.filters[key] = String(value);
+        // Set state.view.page to 1
+        state.view.page = 1;
+        // Call recomputeAndEmit() to update the table
+        recomputeAndEmit();
+    }
+
+    /**
+     * Toggle or set the sort column.
+     *   - If the SAME column is clicked, flip direction ('asc' <-> 'desc').
+     *   - If a DIFFERENT column is clicked, set it with direction 'asc'.
+     *
+     * Does NOT reset the page (users expect their page to stick on re-sort).
+     */
+    function setSort(column) {
+        // TODO (11):
+        //   - If state.view.sortColumn === column:
+        //       * flip direction
+        //   - Else:
+        //       * state.view.sortColumn = column
+        //       * state.view.sortDirection = 'asc'
+        //   - recomputeAndEmit()
+
+        // If state.view.sortColumn is already the same as column, flip direction
+        if (state.view.sortColumn === column) {
+            state.view.sortDirection =
+                state.view.sortDirection === "asc" ? "desc" : "asc";
+        } else {
+            // Otherwise, set sortColumn to column and sortDirection to 'asc'
+            state.view.sortColumn = column;
+            state.view.sortDirection = "asc";
+        }
+        // Call recomputeAndEmit() to update the table
+        recomputeAndEmit();
+    }
+
+    /**
+     * Set the page directly. Clamping happens in recomputeAndEmit.
+     */
+    function setPage(page) {
+        // TODO (12):
+        //   - state.view.page = Number(page) || 1
+        //   - recomputeAndEmit()
+
+        // Set state.view.page to the numberified page, or 1 if invalid
+        state.view.page = Number(page) || 1;
+        // Call recomputeAndEmit() to update the table, clamping page to valid range
+        recomputeAndEmit();
+    }
+
+    /**
+     * Reset search, filters, sort to defaults. Keeps the loaded data.
+     */
+    function resetView() {
+        // TODO (13):
+        //   - Reset state.view to a fresh default object (same shape as in
+        //     createInitialState, but do NOT reset allRows or status).
+        //   - recomputeAndEmit()
+
+        // Reset state.view to a fresh default object
+        state.view = createInitialState().view;
+        // Call recomputeAndEmit() to update the table
+        recomputeAndEmit();
+    }
+
+    // ==========================================================================
+    //  EXTRA CREDIT: Row Selection (+10 points)
+    // --------------------------------------------------------------------------
+    //  Implement selectRow() and clearSelection() to support a row-detail modal.
+    //  If you skip this section, remove the two methods from the return object
+    //  below as well. Do NOT leave stubs that emit nothing — that will cause
+    //  the UI to subscribe to events that never fire.
+    // ==========================================================================
+
+    /**
+     * Mark a row as selected and emit 'row:selected' with the full row object.
+     * If the id doesn't match any row, do nothing (no emit, no error).
+     *
+     * Note: search allRows, not just the visible page. The row might be off-screen.
+     */
+    function selectRow(id) {
+        // TODO (BONUS-1):
+        //   - Coerce id to a number (may come in as a string from dataset).
+        //   - Find the row in state.allRows where row.id === id.
+        //   - If not found, return silently.
+        //   - state.selectedRowId = id
+        //   - Emit 'row:selected' with { row }.
+
+        // coerce id to a number
+        const numericId = Number(id);
+
+        // find the row in state.allRows where row.id === id
+        const row = state.allRows.find((r) => r.id === numericId);
+
+        // if not found, return silently
+        if (!row) return;
+
+        // update state.selectedRowId
+        state.selectedRowId = numericId;
+        // emit 'row:selected' with { row }
+        eventBus.emit("row:selected", { row });
+    }
+
+    /**
+     * Clear the current selection. Safe to call when nothing is selected.
+     * Emits 'row:deselected' only if something was actually selected.
+     */
+    function clearSelection() {
+        // TODO (BONUS-2):
+        //   - If state.selectedRowId is null, return (nothing to do).
+        //   - state.selectedRowId = null
+        //   - Emit 'row:deselected' with null payload.
+        if (state.selectedRowId === null) return;
+
+        state.selectedRowId = null;
+        eventBus.emit("row:deselected", null);
+    }
+
+    return Object.freeze({
+        load,
+        setSearch,
+        setFilter,
+        setSort,
+        setPage,
+        resetView,
+        // --- EXTRA CREDIT (remove these two if not implementing bonus) ---
+        selectRow,
+        clearSelection,
     });
-  }
-
-  /**
-   * Sort `rows` by the given column. Returns a NEW array.
-   * If sortColumn is null, return rows unchanged.
-   * Direction is 'asc' or 'desc'.
-   *
-   * Sort behavior:
-   *   - Numeric columns (year, arrivals, avgStayNights): numeric comparison.
-   *   - String columns (month, country, district, purpose): localeCompare.
-   *
-   * For MONTH specifically: sort by calendar order (January < February < ...),
-   * NOT alphabetical. A MONTH_ORDER constant is provided below.
-   */
-  const MONTH_ORDER = {
-    January: 1,
-    February: 2,
-    March: 3,
-    April: 4,
-    May: 5,
-    June: 6,
-    July: 7,
-    August: 8,
-    September: 9,
-    October: 10,
-    November: 11,
-    December: 12,
-  };
-
-  function applySort(rows, sortColumn, sortDirection) {
-    // TODO (3):
-    //   - If sortColumn is null, return rows as-is.
-    //   - Clone rows first (never mutate input): `rows.slice()`.
-    //   - Call .sort() on the clone with a comparator that:
-    //       * If sortColumn is 'month', uses MONTH_ORDER[row.month] on both sides.
-    //       * If the values are numbers, subtracts them.
-    //       * Otherwise uses String(a).localeCompare(String(b)).
-    //   - If sortDirection is 'desc', reverse the result.
-    //   - Return the sorted clone.
-
-    // if sortColumn is null, return rows as-is
-    if (sortColumn === null) return rows;
-    // otherwise, clone rows first (never mutate input)
-    const sortedRows = rows.slice();
-    // sort the clone
-    sortedRows.sort((a, b) => {
-      // if sortColumn is 'month', use MONTH_ORDER to compare values
-      if (sortColumn === "month") {
-        return MONTH_ORDER[a.month] - MONTH_ORDER[b.month];
-      }
-      // get the values to compare
-      const valueA = a[sortColumn];
-      const valueB = b[sortColumn];
-      // if both values are numbers, subtract them
-      if (typeof valueA === "number" && typeof valueB === "number") {
-        return valueA - valueB;
-      }
-      // otherwise, use localeCompare to sort strings
-      return String(valueA).localeCompare(String(valueB));
-    });
-    // if sortDirection is 'desc', reverse the result
-    if (sortDirection === "desc") {
-      sortedRows.reverse();
-    }
-    // return the sorted clone
-    return sortedRows;
-  }
-
-  /**
-   * Paginate `rows` — slice out the chunk for the current page.
-   * Pages are 1-based. Returns a NEW array.
-   */
-  function applyPagination(rows, page, pageSize) {
-    // TODO (4):
-    //   - startIndex = (page - 1) * pageSize
-    //   - return rows.slice(startIndex, startIndex + pageSize)
-    const startIndex = (page - 1) * pageSize;
-    return rows.slice(startIndex, startIndex + pageSize);
-  }
-
-  /**
-   * Count the number of pages given a row count and page size.
-   * At least 1 (so "Page 1 of 1" displays even when there are 0 rows).
-   */
-  function computePageCount(rowCount, pageSize) {
-    // TODO (5):
-    //   - Math.max(1, Math.ceil(rowCount / pageSize))
-    return Math.max(1, Math.ceil(rowCount / pageSize));
-  }
-
-  /**
-   * Clamp `page` into the valid range [1, pageCount].
-   * Used after filters/search change to avoid showing "page 7 of 3".
-   */
-  function clampPage(page, pageCount) {
-    // TODO (6):
-    //   - Math.min(pageCount, Math.max(1, page))
-    return Math.min(pageCount, Math.max(1, page));
-  }
-
-  // -------------------------------------------------------------------------
-  // Core computation — called after any view-parameter change.
-  // -------------------------------------------------------------------------
-
-  /**
-   * Recompute the derived view from current state and emit 'view:changed'.
-   * This is THE central method. Every setter below ends by calling this.
-   *
-   * Pipeline:
-   *   allRows → search → filter → (count totalFiltered) → sort → paginate
-   *
-   * Do NOT mutate state.allRows. Every helper returns a new array.
-   */
-  function recomputeAndEmit() {
-    // TODO (7):
-    //   - If state.status !== 'ready', return (nothing to compute yet).
-    //   - searched   = applySearch(state.allRows, state.view.searchTerm)
-    //   - filtered   = applyFilters(searched,   state.view.filters)
-    //   - totalFiltered = filtered.length
-    //   - pageCount  = computePageCount(totalFiltered, state.view.pageSize)
-    //   - state.view.page = clampPage(state.view.page, pageCount)   // ← mutate
-    //   - sorted     = applySort(filtered, state.view.sortColumn, state.view.sortDirection)
-    //   - paginated  = applyPagination(sorted, state.view.page, state.view.pageSize)
-    //   - Emit 'view:changed' with the full payload shape documented at the top.
-
-    // If state.status !== 'ready', return (nothing to compute yet).
-    if (state.status !== "ready") return;
-    // Apply search, filters, sort, and pagination to compute the view state.
-    const searched = applySearch(state.allRows, state.view.searchTerm);
-    const filtered = applyFilters(searched, state.view.filters);
-    const totalFiltered = filtered.length;
-    const pageCount = computePageCount(totalFiltered, state.view.pageSize);
-    // Clamp page to the computed page count, and apply sort and pagination.
-    state.view.page = clampPage(state.view.page, pageCount);
-    const sorted = applySort(
-      filtered,
-      state.view.sortColumn,
-      state.view.sortDirection,
-    );
-    const paginated = applyPagination(
-      sorted,
-      state.view.page,
-      state.view.pageSize,
-    );
-    // Emit 'view:changed' with the computed view state.
-    // fixed to match actualy payload (autofill got me in trouble this time)
-    eventBus.emit("view:changed", {
-      visibleRows: paginated,
-      totalAll: state.allRows.length,
-      totalFiltered: totalFiltered,
-      page: state.view.page,
-      pageCount: pageCount,
-      pageSize: state.view.pageSize,
-      sortColumn: state.view.sortColumn,
-      sortDirection: state.view.sortDirection,
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
-
-  /**
-   * Fetch the JSON and populate allRows. Emits 'data:loading',
-   * then 'data:loaded' + 'view:changed' on success, or 'data:loadFailed' on error.
-   */
-  async function load() {
-    // TODO (8):
-    //   - Set state.status = 'loading' and emit 'data:loading' with null payload.
-    //   - Try: fetch(dataUrl), check response.ok, parse as JSON.
-    //     * If not ok, throw new Error(`HTTP ${response.status}`).
-    //   - On success:
-    //       * state.allRows = the parsed array
-    //       * state.status  = 'ready'
-    //       * emit 'data:loaded' with { totalAll: state.allRows.length }
-    //       * call recomputeAndEmit()  // so the table renders immediately
-    //   - On failure:
-    //       * state.status = 'error'
-    //       * emit 'data:loadFailed' with { message: err.message }
-
-    // Set state.status to 'loading', emit 'data:loading', and fetch the data.
-    // On success
-    try {
-      // Set state.status to 'loading'
-      state.status = "loading";
-      // Emit 'data:loading' with null
-      eventBus.emit("data:loading", null);
-      // Fetch the data from the server
-      const response = await fetch(dataUrl);
-      // If the response is not ok, throw an error
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      // Parse the response as JSON
-      const data = await response.json();
-      // Set state.allRows to the parsed array
-      state.allRows = data;
-      // Set state.status to 'ready'
-      state.status = "ready";
-      // Emit 'data:loaded' with { totalAll: data.length }
-      eventBus.emit("data:loaded", { totalAll: data.length });
-      // Call recomputeAndEmit() to update the table
-      recomputeAndEmit();
-      // On Failure
-    } catch (err) {
-      // Set state.status to 'error'
-      state.status = "error";
-      // Emit 'data:loadFailed' with { message: err.message }
-      eventBus.emit("data:loadFailed", { message: err.message });
-    }
-  }
-
-  /**
-   * Update the search term. Resets to page 1 (a new search shouldn't
-   * leave you stranded on page 5 of old results).
-   */
-  function setSearch(term) {
-    // TODO (9):
-    //   - state.view.searchTerm = String(term) (defensive)
-    //   - state.view.page = 1
-    //   - recomputeAndEmit()
-
-    // Set state.view.searchTerm to the stringified term
-    state.view.searchTerm = String(term);
-    // Set state.view.page to 1
-    state.view.page = 1;
-    // Call recomputeAndEmit() to update the table
-    recomputeAndEmit();
-  }
-
-  /**
-   * Update a single filter. Resets to page 1.
-   * @param {'district'|'purpose'|'year'} key
-   * @param {string} value   empty string means "clear this filter"
-   */
-  function setFilter(key, value) {
-    // TODO (10):
-    //   - Guard: if key is not one of the three allowed keys, return.
-    //     (Fail loud is fine — throw a TypeError.)
-    //   - state.view.filters[key] = String(value)
-    //   - state.view.page = 1
-    //   - recomputeAndEmit()
-
-    // Guard: if key is not one of the three allowed keys, return.
-    // Fail loud is fine — throw a TypeError.
-    if (key !== "district" && key !== "purpose" && key !== "year") {
-      throw new TypeError(`Invalid filter key: ${key}`);
-    }
-    // Set state.view.filters[key] to the stringified value
-    state.view.filters[key] = String(value);
-    // Set state.view.page to 1
-    state.view.page = 1;
-    // Call recomputeAndEmit() to update the table
-    recomputeAndEmit();
-  }
-
-  /**
-   * Toggle or set the sort column.
-   *   - If the SAME column is clicked, flip direction ('asc' <-> 'desc').
-   *   - If a DIFFERENT column is clicked, set it with direction 'asc'.
-   *
-   * Does NOT reset the page (users expect their page to stick on re-sort).
-   */
-  function setSort(column) {
-    // TODO (11):
-    //   - If state.view.sortColumn === column:
-    //       * flip direction
-    //   - Else:
-    //       * state.view.sortColumn = column
-    //       * state.view.sortDirection = 'asc'
-    //   - recomputeAndEmit()
-
-    // If state.view.sortColumn is already the same as column, flip direction
-    if (state.view.sortColumn === column) {
-      state.view.sortDirection =
-        state.view.sortDirection === "asc" ? "desc" : "asc";
-    } else {
-      // Otherwise, set sortColumn to column and sortDirection to 'asc'
-      state.view.sortColumn = column;
-      state.view.sortDirection = "asc";
-    }
-    // Call recomputeAndEmit() to update the table
-    recomputeAndEmit();
-  }
-
-  /**
-   * Set the page directly. Clamping happens in recomputeAndEmit.
-   */
-  function setPage(page) {
-    // TODO (12):
-    //   - state.view.page = Number(page) || 1
-    //   - recomputeAndEmit()
-
-    // Set state.view.page to the numberified page, or 1 if invalid
-    state.view.page = Number(page) || 1;
-    // Call recomputeAndEmit() to update the table, clamping page to valid range
-    recomputeAndEmit();
-  }
-
-  /**
-   * Reset search, filters, sort to defaults. Keeps the loaded data.
-   */
-  function resetView() {
-    // TODO (13):
-    //   - Reset state.view to a fresh default object (same shape as in
-    //     createInitialState, but do NOT reset allRows or status).
-    //   - recomputeAndEmit()
-
-    // Reset state.view to a fresh default object
-    state.view = createInitialState().view;
-    // Call recomputeAndEmit() to update the table
-    recomputeAndEmit();
-  }
-
-  // ==========================================================================
-  //  EXTRA CREDIT: Row Selection (+10 points)
-  // --------------------------------------------------------------------------
-  //  Implement selectRow() and clearSelection() to support a row-detail modal.
-  //  If you skip this section, remove the two methods from the return object
-  //  below as well. Do NOT leave stubs that emit nothing — that will cause
-  //  the UI to subscribe to events that never fire.
-  // ==========================================================================
-
-  /**
-   * Mark a row as selected and emit 'row:selected' with the full row object.
-   * If the id doesn't match any row, do nothing (no emit, no error).
-   *
-   * Note: search allRows, not just the visible page. The row might be off-screen.
-   */
-  function selectRow(id) {
-    // TODO (BONUS-1):
-    //   - Coerce id to a number (may come in as a string from dataset).
-    //   - Find the row in state.allRows where row.id === id.
-    //   - If not found, return silently.
-    //   - state.selectedRowId = id
-    //   - Emit 'row:selected' with { row }.
-  }
-
-  /**
-   * Clear the current selection. Safe to call when nothing is selected.
-   * Emits 'row:deselected' only if something was actually selected.
-   */
-  function clearSelection() {
-    // TODO (BONUS-2):
-    //   - If state.selectedRowId is null, return (nothing to do).
-    //   - state.selectedRowId = null
-    //   - Emit 'row:deselected' with null payload.
-  }
-
-  return Object.freeze({
-    load,
-    setSearch,
-    setFilter,
-    setSort,
-    setPage,
-    resetView,
-    // --- EXTRA CREDIT (remove these two if not implementing bonus) ---
-    //selectRow,
-    //clearSelection,
-  });
 }
